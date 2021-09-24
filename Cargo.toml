@@ -11,7 +11,8 @@ crate-type = ["cdylib", "rlib"]
 # Dependencies for all targets go here.
 [dependencies]
 wasm-bindgen = "0.2"
-bevy_flycam = "0.5.1"
+bevy_flycam = { path = "../bevy_flycam" }
+bevy_egui = "0.7.0"
 
 # Dependencies for native only.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
