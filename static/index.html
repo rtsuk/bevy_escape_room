@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <!-- Required meta tags -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bevy Escape Room</title>
+</head>
+<body>
+  <script type="module">
+    import init from "./wasm.js";
+    init("./wasm_bg.wasm").then(function (wasm) {
+      wasm.run();
+    });
+  </script>
+    <p>
+      Use WASD, space, left shift to move, QE to look left/right, RF to look up/down.
+    </p>
+    <p>
+      You might have to click on the scene to get keyboard input to work.
+    </p>
+</body>
+</html>
