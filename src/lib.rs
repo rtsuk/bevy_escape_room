@@ -1,12 +1,17 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext, EguiPlugin};
-use bevy_flycam::PlayerPlugin;
-use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
+use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
+use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMesh, RayCastSource, RaycastSystem};
 use wasm_bindgen::prelude::*;
 
 const INVENTORY_TEXTURE_ID: u64 = 0;
 
 pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn_bundle(PerspectiveCameraBundle::default())
+        .insert(RayCastSource::<MyRaycastSet>::new_transform_empty())
+        .insert(FlyCam)
+        .insert(Name::new("cam".to_string()));
     commands.spawn_scene(asset_server.load("er.gltf#Scene0"));
     commands
         .spawn_bundle(LightBundle {
@@ -51,12 +56,57 @@ fn ui_example(egui_context: Res<EguiContext>) {
         });
 }
 
+fn update_raycast_with_cursor(
+    picking_camera_query: Query<&RayCastSource<MyRaycastSet>>,
+    entities: Query<(Entity, &Parent)>,
+    mut target: ResMut<Target>,
+) {
+    if let Some(picking_camera) = picking_camera_query.iter().last() {
+        if let Some((picked_entity, _intersection)) = picking_camera.intersect_top() {
+            if let Ok(parent) = entities.get_component::<Parent>(picked_entity) {
+                target.0 = Some(parent.0);
+            } else {
+                target.0 = None;
+            }
+        }
+    }
+}
+
+/// This system prints 'A' key state
+fn keyboard_input_system(
+    mut commands: Commands,
+    keyboard_input: Res<Input<KeyCode>>,
+    target: ResMut<Target>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F1) {
+        if let Some(target) = target.0.as_ref() {
+            commands.entity(*target).despawn_recursive();
+        }
+    }
+}
+
 #[derive(Default)]
 struct Done(bool);
 
-struct StorageTub;
 struct BlacklightFlashlight;
+struct BallStatueGreen;
 struct MyRaycastSet;
+
+#[derive(Default, Debug)]
+struct Target(pub Option<Entity>);
+
+#[derive(Debug)]
+struct Parent(pub Entity);
+
+fn make_children_pickable(commands: &mut Commands, parent: &Entity, children: &Children) {
+    for c in children.iter() {
+        dbg!(&c);
+        commands
+            .entity(*c)
+            .insert(RayCastMesh::<MyRaycastSet>::default());
+        commands.entity(*c).insert(Parent(*parent));
+    }
+}
 
 fn tag_stuff(
     mut commands: Commands,
@@ -64,27 +114,22 @@ fn tag_stuff(
     entities: Query<(Entity, &Name, &Children)>,
 ) {
     if !done.0 {
-        for (e, n, _c) in entities.iter() {
+        for (e, n, children) in entities.iter() {
             match n.as_str() {
-                "StorageTub" => {
-                    commands
-                        .entity(e)
-                        .insert(StorageTub)
-                        .insert(RayCastSource::<MyRaycastSet>::new_transform_empty());
-                    ()
-                }
                 "BlacklightFlashlight" => {
+                    println!("BlacklightFlashlight");
                     commands.entity(e).insert(BlacklightFlashlight);
+                    make_children_pickable(&mut commands, &e, children);
                     ()
                 }
-                "BallStatueGreen" => {}
-                _ => {
-                    commands
-                        .entity(e)
-                        .insert(RayCastMesh::<MyRaycastSet>::default());
-                    println!("entity {}", n.as_str())
+                "BallStatueGreen" => {
+                    println!("BallStatueGreen");
+                    commands.entity(e).insert(BallStatueGreen);
+                    make_children_pickable(&mut commands, &e, children);
                 }
+                _ => {}
             }
+
             done.0 = true;
         }
     }
@@ -95,15 +140,23 @@ pub fn run() {
     let mut app = App::build();
 
     app.add_plugins(DefaultPlugins);
-    app.add_plugin(PlayerPlugin);
+    app.add_plugin(NoCameraPlayerPlugin);
     app.add_plugin(EguiPlugin);
     app.init_resource::<Done>();
+    app.init_resource::<Target>();
     app.add_plugin(DefaultRaycastingPlugin::<MyRaycastSet>::default());
     app.add_startup_system(load_assets.system());
     app.add_startup_system(crate::setup.system());
     app.add_system(rotator_system.system());
     app.add_system(ui_example.system());
+    app.add_system(keyboard_input_system.system());
     app.add_system(tag_stuff.system());
+    app.add_system_to_stage(
+        CoreStage::PostUpdate,
+        update_raycast_with_cursor
+            .system()
+            .before(RaycastSystem::BuildRays),
+    );
 
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
