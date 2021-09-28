@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext, EguiPlugin};
 use bevy_flycam::PlayerPlugin;
+use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMesh, RayCastSource};
 use wasm_bindgen::prelude::*;
 
 const INVENTORY_TEXTURE_ID: u64 = 0;
@@ -50,6 +51,45 @@ fn ui_example(egui_context: Res<EguiContext>) {
         });
 }
 
+#[derive(Default)]
+struct Done(bool);
+
+struct StorageTub;
+struct BlacklightFlashlight;
+struct MyRaycastSet;
+
+fn tag_stuff(
+    mut commands: Commands,
+    mut done: ResMut<Done>,
+    entities: Query<(Entity, &Name, &Children)>,
+) {
+    if !done.0 {
+        for (e, n, _c) in entities.iter() {
+            match n.as_str() {
+                "StorageTub" => {
+                    commands
+                        .entity(e)
+                        .insert(StorageTub)
+                        .insert(RayCastSource::<MyRaycastSet>::new_transform_empty());
+                    ()
+                }
+                "BlacklightFlashlight" => {
+                    commands.entity(e).insert(BlacklightFlashlight);
+                    ()
+                }
+                "BallStatueGreen" => {}
+                _ => {
+                    commands
+                        .entity(e)
+                        .insert(RayCastMesh::<MyRaycastSet>::default());
+                    println!("entity {}", n.as_str())
+                }
+            }
+            done.0 = true;
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
@@ -57,10 +97,13 @@ pub fn run() {
     app.add_plugins(DefaultPlugins);
     app.add_plugin(PlayerPlugin);
     app.add_plugin(EguiPlugin);
+    app.init_resource::<Done>();
+    app.add_plugin(DefaultRaycastingPlugin::<MyRaycastSet>::default());
     app.add_startup_system(load_assets.system());
     app.add_startup_system(crate::setup.system());
     app.add_system(rotator_system.system());
     app.add_system(ui_example.system());
+    app.add_system(tag_stuff.system());
 
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
