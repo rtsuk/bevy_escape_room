@@ -72,16 +72,46 @@ fn update_raycast_with_cursor(
     }
 }
 
-/// This system prints 'A' key state
 fn keyboard_input_system(
-    mut commands: Commands,
     keyboard_input: Res<Input<KeyCode>>,
     target: ResMut<Target>,
+    mut equipped: ResMut<Equipped>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {
         if let Some(target) = target.0.as_ref() {
-            commands.entity(*target).despawn_recursive();
+            *equipped = Equipped(Some(*target));
         }
+    }
+}
+
+fn calculate_equipped_transform_system(
+    query: Query<(&FlyCam, &Transform)>,
+    mut equipped_transform: ResMut<EquippedTransform>,
+) {
+    let (_, camera_transform) = query.single().expect("camera");
+    let mut calculated_equipped_transform = *camera_transform;
+    let mut offset = Vec3::ZERO;
+    let local_z = camera_transform.local_z();
+    let forward = Vec3::new(local_z.x, 0., local_z.z);
+    let right = Vec3::new(local_z.z, 0., -local_z.x);
+    offset += forward * -6.0;
+    offset += right * 2.0;
+
+    if !offset.is_nan() {
+        calculated_equipped_transform.translation += offset;
+    }
+
+    *equipped_transform = EquippedTransform(calculated_equipped_transform);
+}
+
+fn show_equipped_system(
+    equipped: ResMut<Equipped>,
+    equipped_transform: ResMut<EquippedTransform>,
+    mut query: Query<&mut Transform>,
+) {
+    if let Some(equipped) = equipped.0.as_ref() {
+        let mut transform = query.get_mut(*equipped).expect("equipped");
+        *transform = equipped_transform.0;
     }
 }
 
@@ -94,6 +124,12 @@ struct MyRaycastSet;
 
 #[derive(Default, Debug)]
 struct Target(pub Option<Entity>);
+
+#[derive(Default, Debug)]
+struct Equipped(pub Option<Entity>);
+
+#[derive(Default, Debug)]
+struct EquippedTransform(pub Transform);
 
 #[derive(Debug)]
 struct Parent(pub Entity);
@@ -144,6 +180,8 @@ pub fn run() {
     app.add_plugin(EguiPlugin);
     app.init_resource::<Done>();
     app.init_resource::<Target>();
+    app.init_resource::<Equipped>();
+    app.init_resource::<EquippedTransform>();
     app.add_plugin(DefaultRaycastingPlugin::<MyRaycastSet>::default());
     app.add_startup_system(load_assets.system());
     app.add_startup_system(crate::setup.system());
@@ -151,6 +189,8 @@ pub fn run() {
     app.add_system(ui_example.system());
     app.add_system(keyboard_input_system.system());
     app.add_system(tag_stuff.system());
+    app.add_system(calculate_equipped_transform_system.system());
+    app.add_system(show_equipped_system.system());
     app.add_system_to_stage(
         CoreStage::PostUpdate,
         update_raycast_with_cursor
