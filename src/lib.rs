@@ -89,18 +89,16 @@ fn calculate_equipped_transform_system(
     mut equipped_transform: ResMut<EquippedTransform>,
 ) {
     let (_, camera_transform) = query.single().expect("camera");
+    let offset = Vec3::new(1.0, 0.0, -8.0);
+
+    let matrix =
+        Mat4::from_rotation_translation(camera_transform.rotation, camera_transform.translation);
+    let transformed_offset = matrix.transform_vector3(offset);
+
     let mut calculated_equipped_transform = *camera_transform;
-    let mut offset = Vec3::ZERO;
-    let local_z = camera_transform.local_z();
-    let forward = Vec3::new(local_z.x, 0., local_z.z);
-    let right = Vec3::new(local_z.z, 0., -local_z.x);
-    offset += forward * -6.0;
-    offset += right * 2.0;
-
-    if !offset.is_nan() {
-        calculated_equipped_transform.translation += offset;
-    }
-
+    calculated_equipped_transform.translation += transformed_offset;
+    dbg!(&camera_transform);
+    dbg!(&calculated_equipped_transform);
     *equipped_transform = EquippedTransform(calculated_equipped_transform);
 }
 
@@ -111,7 +109,7 @@ fn show_equipped_system(
 ) {
     if let Some(equipped) = equipped.0.as_ref() {
         let mut transform = query.get_mut(*equipped).expect("equipped");
-        *transform = equipped_transform.0;
+        *transform = equipped_transform.0.into();
     }
 }
 
@@ -136,7 +134,6 @@ struct Parent(pub Entity);
 
 fn make_children_pickable(commands: &mut Commands, parent: &Entity, children: &Children) {
     for c in children.iter() {
-        dbg!(&c);
         commands
             .entity(*c)
             .insert(RayCastMesh::<MyRaycastSet>::default());
