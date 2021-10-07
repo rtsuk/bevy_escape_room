@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Rob Tsuk <rob@tsuk.com>"]
 edition = "2018"
 resolver = "2"
+description = "foo"
+
+[features]
+bundle = []
+
+[package.metadata.bundle]
+identifier = "com.funnyhatsoftware.ergame"
+resources = ["assets"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -356,7 +356,13 @@ fn show_equipped(mut entities: Query<(&Inventory, &mut Visible)>, player: Res<Pl
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
-
+    #[cfg(feature = "bundle")]
+    {
+        use bevy::asset::AssetServerSettings;
+        app.insert_resource(AssetServerSettings {
+            asset_folder: "../Resources/assets".to_string(),
+        });
+    }
     app.add_plugins(DefaultPlugins);
     app.add_plugin(NoCameraPlayerPlugin);
     app.add_plugin(EguiPlugin);
