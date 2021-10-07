@@ -6,10 +6,15 @@ use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 
 const INVENTORY_TEXTURE_ID: u64 = 0;
-const BLUE_STATUS_TEXTURE_ID: u64 = 1;
-const GREEN_STATUS_TEXTURE_ID: u64 = 2;
-const RED_STATUS_TEXTURE_ID: u64 = 3;
+const INVENTORY_SEL_TEXTURE_ID: u64 = 9;
+const BLUE_STATUE_TEXTURE_ID: u64 = 1;
+const GREEN_STATUE_TEXTURE_ID: u64 = 2;
+const RED_STATUE_TEXTURE_ID: u64 = 3;
 const BLACKLIGHT_FLASHLIGHT_TEXTURE_ID: u64 = 4;
+const RED_STATUE_SEL_TEXTURE_ID: u64 = 5;
+const BLUE_STATUE_SEL_TEXTURE_ID: u64 = 6;
+const GREEN_STATUE_SEL_TEXTURE_ID: u64 = 7;
+const BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID: u64 = 8;
 
 #[derive(Default)]
 pub struct EquippedInstance(Option<InstanceId>);
@@ -59,38 +64,81 @@ pub fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<Rot
 fn load_assets(mut egui_context: ResMut<EguiContext>, assets: Res<AssetServer>) {
     let texture_handle = assets.load("inventory_slot.png");
     egui_context.set_egui_texture(INVENTORY_TEXTURE_ID, texture_handle);
+    let texture_handle = assets.load("inventory_slot_sel.png");
+    egui_context.set_egui_texture(INVENTORY_SEL_TEXTURE_ID, texture_handle);
+    let texture_handle = assets.load("blue_ball_statue_sel.png");
+    egui_context.set_egui_texture(BLUE_STATUE_SEL_TEXTURE_ID, texture_handle);
     let texture_handle = assets.load("blue_ball_statue.png");
-    egui_context.set_egui_texture(BLUE_STATUS_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(BLUE_STATUE_TEXTURE_ID, texture_handle);
+    let texture_handle = assets.load("green_ball_statue_sel.png");
+    egui_context.set_egui_texture(GREEN_STATUE_SEL_TEXTURE_ID, texture_handle);
     let texture_handle = assets.load("green_ball_statue.png");
-    egui_context.set_egui_texture(GREEN_STATUS_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(GREEN_STATUE_TEXTURE_ID, texture_handle);
     let texture_handle = assets.load("red_ball_statue.png");
-    egui_context.set_egui_texture(RED_STATUS_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(RED_STATUE_TEXTURE_ID, texture_handle);
+    let texture_handle = assets.load("red_ball_statue_sel.png");
+    egui_context.set_egui_texture(RED_STATUE_SEL_TEXTURE_ID, texture_handle);
+    let texture_handle = assets.load("blacklight_flashlight_sel.png");
+    egui_context.set_egui_texture(BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID, texture_handle);
     let texture_handle = assets.load("blacklight_flashlight.png");
     egui_context.set_egui_texture(BLACKLIGHT_FLASHLIGHT_TEXTURE_ID, texture_handle);
 }
 
 const ITEMS: &[&'static str] = &[
-    "BallStatueRed",
-    "BallStatueGreen",
-    "BallStatueBlue",
-    "BlacklightFlashlight",
+    "InvBallStatueRed",
+    "InvBallStatueGreen",
+    "InvBallStatueBlue",
+    "InvBlacklightFlashlight",
     "",
 ];
+
+fn maybe_equipped(equipped: &str, name: &str, equipped_id: u64, not_equipped_id: u64) -> u64 {
+    if equipped == name {
+        equipped_id
+    } else {
+        not_equipped_id
+    }
+}
 
 fn ui_example(egui_context: Res<EguiContext>, player: Res<Player>) {
     let textures: Vec<_> = ITEMS
         .iter()
-        .map(|name| {
+        .enumerate()
+        .map(|(index, name)| {
             if player.inventory.contains(*name) {
                 match *name {
-                    "BallStatueRed" => RED_STATUS_TEXTURE_ID,
-                    "BallStatueGreen" => GREEN_STATUS_TEXTURE_ID,
-                    "BallStatueBlue" => BLUE_STATUS_TEXTURE_ID,
-                    "BlacklightFlashlight" => BLACKLIGHT_FLASHLIGHT_TEXTURE_ID,
+                    "InvBallStatueRed" => maybe_equipped(
+                        player.equipped_name(),
+                        *name,
+                        RED_STATUE_SEL_TEXTURE_ID,
+                        RED_STATUE_TEXTURE_ID,
+                    ),
+                    "InvBallStatueGreen" => maybe_equipped(
+                        player.equipped_name(),
+                        *name,
+                        GREEN_STATUE_SEL_TEXTURE_ID,
+                        GREEN_STATUE_TEXTURE_ID,
+                    ),
+                    "InvBallStatueBlue" => maybe_equipped(
+                        player.equipped_name(),
+                        *name,
+                        BLUE_STATUE_SEL_TEXTURE_ID,
+                        BLUE_STATUE_TEXTURE_ID,
+                    ),
+                    "InvBlacklightFlashlight" => maybe_equipped(
+                        player.equipped_name(),
+                        *name,
+                        BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID,
+                        BLACKLIGHT_FLASHLIGHT_TEXTURE_ID,
+                    ),
                     _ => INVENTORY_TEXTURE_ID,
                 }
             } else {
-                INVENTORY_TEXTURE_ID
+                if index == player.equipped {
+                    INVENTORY_SEL_TEXTURE_ID
+                } else {
+                    INVENTORY_TEXTURE_ID
+                }
             }
         })
         .collect();
@@ -128,17 +176,29 @@ fn update_raycast_with_cursor(
 fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     target: ResMut<Target>,
-    mut equipped: ResMut<Equipped>,
     mut player: ResMut<Player>,
     mut commands: Commands,
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {
         if let Some(target) = target.0.as_ref() {
             let target_name = target.name.to_string();
-            *equipped = Equipped(Some(target_name.to_string()));
-            player.inventory.insert(target_name);
+            let inv_name = format!("Inv{}", target_name);
+            player.inventory.insert(inv_name.clone());
+            player.equipped = Player::item_index(&inv_name);
             commands.entity(target.entity).despawn();
         }
+    }
+
+    if keyboard_input.just_pressed(KeyCode::Down) {
+        player.equipped = match player.equipped {
+            4 => 0,
+            _ => player.equipped + 1,
+        };
+    } else if keyboard_input.just_pressed(KeyCode::Up) {
+        player.equipped = match player.equipped {
+            0 => 4,
+            _ => player.equipped - 1,
+        };
     }
 }
 
@@ -177,10 +237,39 @@ struct Inventory(pub String);
 #[derive(Debug)]
 struct Pickable(pub String);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Player {
-    equipped: String,
+    equipped: usize,
     inventory: HashSet<String>,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self {
+            equipped: 4,
+            inventory: HashSet::default(),
+        }
+    }
+}
+
+impl Player {
+    pub fn equipped_name(&self) -> &'static str {
+        ITEMS[self.equipped]
+    }
+
+    pub fn item_index(name: &str) -> usize {
+        ITEMS
+            .iter()
+            .enumerate()
+            .find_map(|(index, item_name)| {
+                if *item_name == name {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(4)
+    }
 }
 
 fn make_children_pickable(
@@ -250,8 +339,6 @@ fn tag_stuff(
                                 transform: *t,
                                 ..Default::default()
                             });
-                            dbg!(n);
-                            dbg!(t);
                         }
                     }
                 }
@@ -262,9 +349,7 @@ fn tag_stuff(
 
 fn show_equipped(mut entities: Query<(&Inventory, &mut Visible)>, player: Res<Player>) {
     for (i, mut v) in entities.iter_mut() {
-        if &player.equipped == &i.0 {
-            v.is_visible = true;
-        }
+        v.is_visible = player.inventory.contains(&i.0) && player.equipped_name() == &i.0;
     }
 }
 
