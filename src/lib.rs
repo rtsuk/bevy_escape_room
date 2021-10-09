@@ -5,16 +5,30 @@ use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMesh, RayCastSource, Rayc
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 
-const INVENTORY_TEXTURE_ID: u64 = 0;
-const INVENTORY_SEL_TEXTURE_ID: u64 = 9;
-const BLUE_STATUE_TEXTURE_ID: u64 = 1;
-const GREEN_STATUE_TEXTURE_ID: u64 = 2;
-const RED_STATUE_TEXTURE_ID: u64 = 3;
-const BLACKLIGHT_FLASHLIGHT_TEXTURE_ID: u64 = 4;
-const RED_STATUE_SEL_TEXTURE_ID: u64 = 5;
-const BLUE_STATUE_SEL_TEXTURE_ID: u64 = 6;
-const GREEN_STATUE_SEL_TEXTURE_ID: u64 = 7;
-const BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID: u64 = 8;
+enum TextureIds {
+    BlacklightFlashlightSelTextureId,
+    BlacklightFlashlightTextureId,
+    BluePosterTextureId,
+    BluePosterUvTextureId,
+    BlueStatueSelTextureId,
+    BlueStatueTextureId,
+    GreenPosterTextureId,
+    GreenPosterUvTextureId,
+    GreenStatueSelTextureId,
+    GreenStatueTextureId,
+    InventorySelTextureId,
+    InventoryTextureId,
+    RedPosterTextureId,
+    RedPosterUvTextureId,
+    RedStatueSelTextureId,
+    RedStatueTextureId,
+}
+
+impl Into<u64> for TextureIds {
+    fn into(self) -> u64 {
+        self as u64
+    }
+}
 
 #[derive(Default)]
 pub struct EquippedInstance(Option<InstanceId>);
@@ -45,7 +59,7 @@ pub fn setup(
                 ..Default::default()
             });
         })
-        .insert(RayCastSource::<MyRaycastSet>::new_transform_empty())
+        .insert(RayCastSource::<PickingRaycastSet>::new_transform_empty())
         .insert(FlyCam)
         .insert(Name::new("cam".to_string()));
 }
@@ -63,25 +77,43 @@ pub fn rotator_system(time: Res<Time>, mut query: Query<&mut Transform, With<Rot
 
 fn load_assets(mut egui_context: ResMut<EguiContext>, assets: Res<AssetServer>) {
     let texture_handle = assets.load("inventory_slot.png");
-    egui_context.set_egui_texture(INVENTORY_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::InventoryTextureId.into(), texture_handle);
     let texture_handle = assets.load("inventory_slot_sel.png");
-    egui_context.set_egui_texture(INVENTORY_SEL_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::InventorySelTextureId.into(), texture_handle);
     let texture_handle = assets.load("blue_ball_statue_sel.png");
-    egui_context.set_egui_texture(BLUE_STATUE_SEL_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::BlueStatueSelTextureId.into(), texture_handle);
     let texture_handle = assets.load("blue_ball_statue.png");
-    egui_context.set_egui_texture(BLUE_STATUE_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::BlueStatueTextureId.into(), texture_handle);
     let texture_handle = assets.load("green_ball_statue_sel.png");
-    egui_context.set_egui_texture(GREEN_STATUE_SEL_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::GreenStatueSelTextureId.into(), texture_handle);
     let texture_handle = assets.load("green_ball_statue.png");
-    egui_context.set_egui_texture(GREEN_STATUE_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::GreenStatueTextureId.into(), texture_handle);
     let texture_handle = assets.load("red_ball_statue.png");
-    egui_context.set_egui_texture(RED_STATUE_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::RedStatueTextureId.into(), texture_handle);
     let texture_handle = assets.load("red_ball_statue_sel.png");
-    egui_context.set_egui_texture(RED_STATUE_SEL_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(TextureIds::RedStatueSelTextureId.into(), texture_handle);
     let texture_handle = assets.load("blacklight_flashlight_sel.png");
-    egui_context.set_egui_texture(BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(
+        TextureIds::BlacklightFlashlightSelTextureId.into(),
+        texture_handle,
+    );
     let texture_handle = assets.load("blacklight_flashlight.png");
-    egui_context.set_egui_texture(BLACKLIGHT_FLASHLIGHT_TEXTURE_ID, texture_handle);
+    egui_context.set_egui_texture(
+        TextureIds::BlacklightFlashlightTextureId.into(),
+        texture_handle,
+    );
+    let texture_handle = assets.load("PosterBlueUV.png");
+    egui_context.set_egui_texture(TextureIds::BluePosterTextureId.into(), texture_handle);
+    let texture_handle = assets.load("PosterBlueUVBlackLight.png");
+    egui_context.set_egui_texture(TextureIds::BluePosterUvTextureId.into(), texture_handle);
+    let texture_handle = assets.load("PosterRedUV.png");
+    egui_context.set_egui_texture(TextureIds::RedPosterTextureId.into(), texture_handle);
+    let texture_handle = assets.load("PosterRedUVBlackLight.png");
+    egui_context.set_egui_texture(TextureIds::RedPosterUvTextureId.into(), texture_handle);
+    let texture_handle = assets.load("PosterGreenUV.png");
+    egui_context.set_egui_texture(TextureIds::GreenPosterTextureId.into(), texture_handle);
+    let texture_handle = assets.load("PosterGreenUVBlackLight.png");
+    egui_context.set_egui_texture(TextureIds::GreenPosterUvTextureId.into(), texture_handle);
 }
 
 const ITEMS: &[&'static str] = &[
@@ -92,11 +124,16 @@ const ITEMS: &[&'static str] = &[
     "",
 ];
 
-fn maybe_equipped(equipped: &str, name: &str, equipped_id: u64, not_equipped_id: u64) -> u64 {
+fn maybe_equipped(
+    equipped: &str,
+    name: &str,
+    equipped_id: TextureIds,
+    not_equipped_id: TextureIds,
+) -> u64 {
     if equipped == name {
-        equipped_id
+        equipped_id.into()
     } else {
-        not_equipped_id
+        not_equipped_id.into()
     }
 }
 
@@ -110,35 +147,36 @@ fn ui_example(egui_context: Res<EguiContext>, player: Res<Player>) {
                     "InvBallStatueRed" => maybe_equipped(
                         player.equipped_name(),
                         *name,
-                        RED_STATUE_SEL_TEXTURE_ID,
-                        RED_STATUE_TEXTURE_ID,
+                        TextureIds::RedStatueSelTextureId,
+                        TextureIds::RedStatueTextureId,
                     ),
                     "InvBallStatueGreen" => maybe_equipped(
                         player.equipped_name(),
                         *name,
-                        GREEN_STATUE_SEL_TEXTURE_ID,
-                        GREEN_STATUE_TEXTURE_ID,
+                        TextureIds::GreenStatueSelTextureId,
+                        TextureIds::GreenStatueTextureId,
                     ),
                     "InvBallStatueBlue" => maybe_equipped(
                         player.equipped_name(),
                         *name,
-                        BLUE_STATUE_SEL_TEXTURE_ID,
-                        BLUE_STATUE_TEXTURE_ID,
+                        TextureIds::BlueStatueSelTextureId,
+                        TextureIds::BlueStatueTextureId,
                     ),
                     "InvBlacklightFlashlight" => maybe_equipped(
                         player.equipped_name(),
                         *name,
-                        BLACKLIGHT_FLASHLIGHT_SEL_TEXTURE_ID,
-                        BLACKLIGHT_FLASHLIGHT_TEXTURE_ID,
+                        TextureIds::BlacklightFlashlightSelTextureId,
+                        TextureIds::BlacklightFlashlightTextureId,
                     ),
-                    _ => INVENTORY_TEXTURE_ID,
+                    _ => TextureIds::InventoryTextureId.into(),
                 }
             } else {
                 if index == player.equipped {
-                    INVENTORY_SEL_TEXTURE_ID
+                    TextureIds::InventorySelTextureId
                 } else {
-                    INVENTORY_TEXTURE_ID
+                    TextureIds::InventoryTextureId
                 }
+                .into()
             }
         })
         .collect();
@@ -157,7 +195,7 @@ fn ui_example(egui_context: Res<EguiContext>, player: Res<Player>) {
 }
 
 fn update_raycast_with_cursor(
-    picking_camera_query: Query<&RayCastSource<MyRaycastSet>>,
+    picking_camera_query: Query<&RayCastSource<PickingRaycastSet>>,
     entities: Query<(Entity, &Pickable)>,
     mut target: ResMut<Target>,
 ) {
@@ -207,6 +245,7 @@ struct Done(bool);
 
 struct BlacklightFlashlight;
 
+#[derive(Debug, Clone, Copy)]
 enum StatueColor {
     Red,
     Green,
@@ -214,7 +253,8 @@ enum StatueColor {
 }
 
 struct BallStatue(StatueColor);
-struct MyRaycastSet;
+struct PickingRaycastSet;
+struct BlacklightRaycastSet;
 
 #[derive(Debug)]
 pub struct NamedEntity {
@@ -224,6 +264,9 @@ pub struct NamedEntity {
 
 #[derive(Default, Debug)]
 struct Target(pub Option<NamedEntity>);
+
+#[derive(Default, Debug)]
+struct BlacklightTarget(pub Option<NamedEntity>);
 
 #[derive(Default, Debug)]
 struct Equipped(pub Option<String>);
@@ -236,6 +279,9 @@ struct Inventory(pub String);
 
 #[derive(Debug)]
 struct Pickable(pub String);
+
+#[derive(Debug)]
+struct Poster(pub String, pub StatueColor, pub bool);
 
 #[derive(Debug)]
 struct Player {
@@ -281,9 +327,28 @@ fn make_children_pickable(
     for c in children.iter() {
         commands
             .entity(*c)
-            .insert(RayCastMesh::<MyRaycastSet>::default());
+            .insert(RayCastMesh::<PickingRaycastSet>::default());
         commands.entity(*c).insert(Parent(*parent));
         commands.entity(*c).insert(Pickable(name.to_string()));
+    }
+}
+
+fn make_children_posters(
+    commands: &mut Commands,
+    children: &Children,
+    name: &str,
+    color: StatueColor,
+    uv: bool,
+) {
+    for c in children.iter() {
+        commands
+            .entity(*c)
+            .insert(Poster(name.to_string(), color, uv));
+        if !uv {
+            commands
+                .entity(*c)
+                .insert(RayCastMesh::<BlacklightRaycastSet>::default());
+        }
     }
 }
 
@@ -320,8 +385,69 @@ fn tag_stuff(
                         commands.entity(e).insert(BallStatue(StatueColor::Red));
                         make_children_pickable(&mut commands, &e, children, name);
                     }
+                    "RedPoster" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            name,
+                            StatueColor::Red,
+                            false,
+                        );
+                    }
+                    "GreenPoster" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            name,
+                            StatueColor::Green,
+                            false,
+                        );
+                    }
+                    "BluePoster" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            name,
+                            StatueColor::Blue,
+                            false,
+                        );
+                    }
+                    "RedPosterUV" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            "RedPoster",
+                            StatueColor::Red,
+                            true,
+                        );
+                    }
+                    "GreenPosterUV" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            "GreenPoster",
+                            StatueColor::Green,
+                            true,
+                        );
+                    }
+                    "BluePosterUV" => {
+                        make_children_posters(
+                            &mut commands,
+                            children,
+                            "BluePoster",
+                            StatueColor::Blue,
+                            true,
+                        );
+                    }
                     _ => {
                         if name.starts_with("Inv") {
+                            if name == "InvBlacklightFlashlight" {
+                                commands.entity(e).insert(
+                                    RayCastSource::<BlacklightRaycastSet>::new_transform(
+                                        Mat4::from_rotation_y(2.35619),
+                                    ),
+                                );
+                            }
                             commands.entity(e).insert(Inventory(n.to_string()));
                             commands.entity(e).insert(Visible {
                                 is_visible: false,
@@ -353,6 +479,48 @@ fn show_equipped(mut entities: Query<(&Inventory, &mut Visible)>, player: Res<Pl
     }
 }
 
+fn update_posters(
+    mut _commands: Commands,
+    mut entities: Query<(Entity, &Poster, &mut Visible)>,
+    target: ResMut<BlacklightTarget>,
+    player: Res<Player>,
+) {
+    let blacklight_equipped = player.equipped_name() == "InvBlacklightFlashlight";
+    let target_poster_name = target
+        .0
+        .as_ref()
+        .map(|target| target.name.clone())
+        .unwrap_or(String::from(""));
+    for (_i, p, mut v) in entities.iter_mut() {
+        if blacklight_equipped {
+            if p.0 == target_poster_name {
+                v.is_visible = p.2;
+            } else {
+                v.is_visible = !p.2;
+            }
+        } else {
+            v.is_visible = !p.2;
+        }
+    }
+}
+
+fn shine_on_poster(
+    blacklight_camera_query: Query<&RayCastSource<BlacklightRaycastSet>>,
+    entities: Query<(Entity, &Poster)>,
+    mut target: ResMut<BlacklightTarget>,
+) {
+    if let Some(blacklight_camera) = blacklight_camera_query.iter().last() {
+        if let Some((illuminated_entity, _intersection)) = blacklight_camera.intersect_top() {
+            if let Ok(poster) = entities.get_component::<Poster>(illuminated_entity) {
+                *target = BlacklightTarget(Some(NamedEntity {
+                    name: poster.0.to_string(),
+                    entity: illuminated_entity,
+                }));
+            }
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
@@ -368,10 +536,12 @@ pub fn run() {
     app.add_plugin(EguiPlugin);
     app.init_resource::<Done>();
     app.init_resource::<Target>();
+    app.init_resource::<BlacklightTarget>();
     app.init_resource::<Equipped>();
     app.init_resource::<EquippedInstance>();
     app.init_resource::<Player>();
-    app.add_plugin(DefaultRaycastingPlugin::<MyRaycastSet>::default());
+    app.add_plugin(DefaultRaycastingPlugin::<PickingRaycastSet>::default());
+    app.add_plugin(DefaultRaycastingPlugin::<BlacklightRaycastSet>::default());
     app.add_startup_system(load_assets.system());
     app.add_startup_system(crate::setup.system());
     app.add_system(rotator_system.system());
@@ -379,11 +549,16 @@ pub fn run() {
     app.add_system(keyboard_input_system.system());
     app.add_system(tag_stuff.system());
     app.add_system(show_equipped.system());
+    app.add_system(update_posters.system());
     app.add_system_to_stage(
         CoreStage::PostUpdate,
         update_raycast_with_cursor
             .system()
             .before(RaycastSystem::BuildRays),
+    );
+    app.add_system_to_stage(
+        CoreStage::PostUpdate,
+        shine_on_poster.system().before(RaycastSystem::BuildRays),
     );
 
     // when building for Web, use WebGL2 rendering
