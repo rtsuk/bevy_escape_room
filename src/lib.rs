@@ -2,7 +2,7 @@ use bevy::{prelude::*, scene::InstanceId};
 use bevy_egui::{egui, EguiContext, EguiPlugin};
 use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
 use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMesh, RayCastSource, RaycastSystem};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use wasm_bindgen::prelude::*;
 
 enum TextureIds {
@@ -60,6 +60,7 @@ pub fn setup(
             });
         })
         .insert(RayCastSource::<PickingRaycastSet>::new_transform_empty())
+        .insert(RayCastSource::<BlacklightRaycastSet>::new_transform_empty())
         .insert(FlyCam)
         .insert(Name::new("cam".to_string()));
 }
@@ -211,19 +212,56 @@ fn update_raycast_with_cursor(
     }
 }
 
+fn update_place_target(
+    picking_camera_query: Query<&RayCastSource<PickingRaycastSet>>,
+    entities: Query<(Entity, &StatueHolder)>,
+    mut target: ResMut<PlaceTarget>,
+) {
+    if let Some(picking_camera) = picking_camera_query.iter().last() {
+        if let Some((picked_entity, _intersection)) = picking_camera.intersect_top() {
+            if let Ok(place_target) = entities.get_component::<StatueHolder>(picked_entity) {
+                *target = PlaceTarget(Some(NamedEntity {
+                    name: place_target.0.to_string(),
+                    entity: picked_entity,
+                }));
+            }
+        }
+    }
+}
+
 fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
-    target: ResMut<Target>,
+    mut target: ResMut<Target>,
+    place_target: ResMut<PlaceTarget>,
     mut player: ResMut<Player>,
+    mut statue_holders: ResMut<StatueHolders>,
     mut commands: Commands,
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {
-        if let Some(target) = target.0.as_ref() {
-            let target_name = target.name.to_string();
+        if let Some(pick_target) = target.0.as_ref() {
+            let target_name = pick_target.name.to_string();
             let inv_name = format!("Inv{}", target_name);
             player.inventory.insert(inv_name.clone());
             player.equipped = Player::item_index(&inv_name);
-            commands.entity(target.entity).despawn();
+            commands.entity(pick_target.entity).despawn();
+            target.0 = None;
+        } else if let Some(place) = place_target.0.as_ref() {
+            let equipped_name = player.equipped_name();
+            match equipped_name {
+                "InvBallStatueBlue" => {
+                    player.inventory.remove(equipped_name);
+                    statue_holders.place(&mut player, place, StatueColor::Blue);
+                }
+                "InvBallStatueGreen" => {
+                    player.inventory.remove(equipped_name);
+                    statue_holders.place(&mut player, place, StatueColor::Green);
+                }
+                "InvBallStatueRed" => {
+                    player.inventory.remove(equipped_name);
+                    statue_holders.place(&mut player, place, StatueColor::Red);
+                }
+                _ => (),
+            }
         }
     }
 
@@ -245,11 +283,18 @@ struct Done(bool);
 
 struct BlacklightFlashlight;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum StatueColor {
     Red,
     Green,
     Blue,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum Location {
+    Left,
+    Middle,
+    Right,
 }
 
 struct BallStatue(StatueColor);
@@ -269,6 +314,9 @@ struct Target(pub Option<NamedEntity>);
 struct BlacklightTarget(pub Option<NamedEntity>);
 
 #[derive(Default, Debug)]
+struct PlaceTarget(pub Option<NamedEntity>);
+
+#[derive(Default, Debug)]
 struct Equipped(pub Option<String>);
 
 #[derive(Debug)]
@@ -282,6 +330,12 @@ struct Pickable(pub String);
 
 #[derive(Debug)]
 struct Poster(pub String, pub StatueColor, pub bool);
+
+#[derive(Debug)]
+struct StatueHolder(pub String);
+
+#[derive(Debug)]
+struct PlacedStatue(pub StatueColor, pub Location);
 
 #[derive(Debug)]
 struct Player {
@@ -300,7 +354,12 @@ impl Default for Player {
 
 impl Player {
     pub fn equipped_name(&self) -> &'static str {
-        ITEMS[self.equipped]
+        let name = ITEMS[self.equipped];
+        if self.inventory.contains(name) {
+            name
+        } else {
+            ""
+        }
     }
 
     pub fn item_index(name: &str) -> usize {
@@ -315,6 +374,35 @@ impl Player {
                 }
             })
             .unwrap_or(4)
+    }
+}
+
+fn statue_name_for_color(color: StatueColor) -> &'static str {
+    match color {
+        StatueColor::Red => "InvBallStatueRed",
+        StatueColor::Green => "InvBallStatueGreen",
+        StatueColor::Blue => "InvBallStatueBlue",
+    }
+}
+
+#[derive(Default, Debug)]
+struct StatueHolders {
+    held_statues: HashMap<Location, StatueColor>,
+}
+
+impl StatueHolders {
+    fn place(&mut self, player: &mut Player, place: &NamedEntity, statue_color: StatueColor) {
+        let location = match place.name.as_str() {
+            "LeftStatueHolder" => Location::Left,
+            "MiddleStatueHolder" => Location::Middle,
+            _ => Location::Right,
+        };
+        if let Some(existing) = self.held_statues.get(&location) {
+            player
+                .inventory
+                .insert(statue_name_for_color(*existing).to_string());
+        }
+        self.held_statues.insert(location, statue_color);
     }
 }
 
@@ -352,6 +440,41 @@ fn make_children_posters(
     }
 }
 
+fn make_children_placeable(
+    commands: &mut Commands,
+    parent: &Entity,
+    children: &Children,
+    name: &str,
+) {
+    commands
+        .entity(*parent)
+        .insert(StatueHolder(name.to_string()));
+    for c in children.iter() {
+        commands
+            .entity(*c)
+            .insert(RayCastMesh::<PickingRaycastSet>::default())
+            .insert(StatueHolder(name.to_string()));
+    }
+}
+
+fn make_children_placed_statues(
+    commands: &mut Commands,
+    parent: &Entity,
+    children: &Children,
+    color: StatueColor,
+    location: Location,
+) {
+    commands
+        .entity(*parent)
+        .insert(PlacedStatue(color, location));
+    for c in children.iter() {
+        commands
+            .entity(*c)
+            .insert(RayCastMesh::<PickingRaycastSet>::default())
+            .insert(PlacedStatue(color, location));
+    }
+}
+
 fn tag_stuff(
     mut commands: Commands,
     mut done: ResMut<Done>,
@@ -384,6 +507,96 @@ fn tag_stuff(
                     "BallStatueRed" => {
                         commands.entity(e).insert(BallStatue(StatueColor::Red));
                         make_children_pickable(&mut commands, &e, children, name);
+                    }
+                    "LeftStatueHolder" => {
+                        make_children_placeable(&mut commands, &e, children, name);
+                    }
+                    "MiddleStatueHolder" => {
+                        make_children_placeable(&mut commands, &e, children, name);
+                    }
+                    "RightStatueHolder" => {
+                        make_children_placeable(&mut commands, &e, children, name);
+                    }
+                    "BallStatueRedPlacedRight" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Red,
+                            Location::Right,
+                        );
+                    }
+                    "BallStatueGreenPlacedRight" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Green,
+                            Location::Right,
+                        );
+                    }
+                    "BallStatueBluePlacedRight" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Blue,
+                            Location::Right,
+                        );
+                    }
+                    "BallStatueRedPlacedMid" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Red,
+                            Location::Middle,
+                        );
+                    }
+                    "BallStatueGreenPlacedMid" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Green,
+                            Location::Middle,
+                        );
+                    }
+                    "BallStatueBluePlacedMid" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Blue,
+                            Location::Middle,
+                        );
+                    }
+                    "BallStatueRedPlacedLeft" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Red,
+                            Location::Left,
+                        );
+                    }
+                    "BallStatueGreenPlacedLeft" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Green,
+                            Location::Left,
+                        );
+                    }
+                    "BallStatueBluePlacedLeft" => {
+                        make_children_placed_statues(
+                            &mut commands,
+                            &e,
+                            children,
+                            StatueColor::Blue,
+                            Location::Left,
+                        );
                     }
                     "RedPoster" => {
                         make_children_posters(
@@ -441,13 +654,6 @@ fn tag_stuff(
                     }
                     _ => {
                         if name.starts_with("Inv") {
-                            if name == "InvBlacklightFlashlight" {
-                                commands.entity(e).insert(
-                                    RayCastSource::<BlacklightRaycastSet>::new_transform(
-                                        Mat4::from_rotation_y(2.35619),
-                                    ),
-                                );
-                            }
                             commands.entity(e).insert(Inventory(n.to_string()));
                             commands.entity(e).insert(Visible {
                                 is_visible: false,
@@ -476,6 +682,24 @@ fn tag_stuff(
 fn show_equipped(mut entities: Query<(&Inventory, &mut Visible)>, player: Res<Player>) {
     for (i, mut v) in entities.iter_mut() {
         v.is_visible = player.inventory.contains(&i.0) && player.equipped_name() == &i.0;
+    }
+}
+
+fn show_placed(
+    mut entities: Query<(&PlacedStatue, &mut Visible)>,
+    statue_holders: Res<StatueHolders>,
+) {
+    for (i, mut v) in entities.iter_mut() {
+        let color = statue_holders.held_statues.get(&i.1);
+        if let Some(color) = color {
+            if &i.0 == color {
+                v.is_visible = true;
+            } else {
+                v.is_visible = false;
+            }
+        } else {
+            v.is_visible = false;
+        }
     }
 }
 
@@ -537,9 +761,11 @@ pub fn run() {
     app.init_resource::<Done>();
     app.init_resource::<Target>();
     app.init_resource::<BlacklightTarget>();
+    app.init_resource::<PlaceTarget>();
     app.init_resource::<Equipped>();
     app.init_resource::<EquippedInstance>();
     app.init_resource::<Player>();
+    app.init_resource::<StatueHolders>();
     app.add_plugin(DefaultRaycastingPlugin::<PickingRaycastSet>::default());
     app.add_plugin(DefaultRaycastingPlugin::<BlacklightRaycastSet>::default());
     app.add_startup_system(load_assets.system());
@@ -549,10 +775,17 @@ pub fn run() {
     app.add_system(keyboard_input_system.system());
     app.add_system(tag_stuff.system());
     app.add_system(show_equipped.system());
+    app.add_system(show_placed.system());
     app.add_system(update_posters.system());
     app.add_system_to_stage(
         CoreStage::PostUpdate,
         update_raycast_with_cursor
+            .system()
+            .before(RaycastSystem::BuildRays),
+    );
+    app.add_system_to_stage(
+        CoreStage::PostUpdate,
+        update_place_target
             .system()
             .before(RaycastSystem::BuildRays),
     );
