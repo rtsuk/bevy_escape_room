@@ -258,6 +258,27 @@ fn parse_placed_statue(name: &str) -> Option<(Location, StatueColor)> {
     Some((location, color))
 }
 
+fn angle_to_radians(degrees: f32) -> f32 {
+    degrees * std::f32::consts::PI / 180.0
+}
+
+// z - left and right in frame
+// x - front to back in frame
+fn open_door(transform: &mut Transform, angle: f32) {
+    dbg!(&transform);
+    const DOOR_WIDTH: f32 = 3.95805;
+    const HALF_DOOR_WIDTH: f32 = DOOR_WIDTH / 2.0;
+    const DOOR_THICKNESS: f32 = 0.867563;
+    const HALF_DOOR_THICKNESS: f32 = DOOR_THICKNESS / 2.0;
+    let r = angle_to_radians(angle);
+    let s = r.sin();
+    let c = r.cos();
+    let x = -(HALF_DOOR_THICKNESS - HALF_DOOR_THICKNESS * c) + HALF_DOOR_WIDTH * s;
+    let z = -HALF_DOOR_WIDTH * s - (HALF_DOOR_THICKNESS - HALF_DOOR_THICKNESS * c);
+    *transform = Transform::from_translation(Vec3::new(x, 0.0, z))
+        * Transform::from_rotation(Quat::from_rotation_y(r));
+}
+
 fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut target: ResMut<Target>,
@@ -265,6 +286,8 @@ fn keyboard_input_system(
     mut player: ResMut<Player>,
     mut statue_holders: ResMut<StatueHolders>,
     mut commands: Commands,
+    mut _puzzle_door: Query<(&mut InsideDoor, &mut Transform)>,
+    mut _door_angle: ResMut<InsideDoorAngle>,
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {
         if let Some(pick_target) = target.0.as_ref() {
@@ -314,6 +337,22 @@ fn keyboard_input_system(
             0 => 4,
             _ => player.equipped - 1,
         };
+    // } else if keyboard_input.just_pressed(KeyCode::Home) {
+    //     door_angle.0 = 0.0;
+    //     let (_, mut transform) = puzzle_door.single_mut().expect("puzzle_door");
+    //     open_door(&mut transform, door_angle.0);
+    // } else if keyboard_input.just_pressed(KeyCode::End) {
+    //     door_angle.0 = 90.0;
+    //     let (_, mut transform) = puzzle_door.single_mut().expect("puzzle_door");
+    //     open_door(&mut transform, door_angle.0);
+    // } else if keyboard_input.pressed(KeyCode::Left) {
+    //     door_angle.0 -= 1.0;
+    //     let (_, mut transform) = puzzle_door.single_mut().expect("puzzle_door");
+    //     open_door(&mut transform, door_angle.0);
+    // } else if keyboard_input.pressed(KeyCode::Right) {
+    //     door_angle.0 += 1.0;
+    //     let (_, mut transform) = puzzle_door.single_mut().expect("puzzle_door");
+    //     open_door(&mut transform, door_angle.0);
     }
 }
 
@@ -376,14 +415,24 @@ struct StatueHolder(pub String);
 #[derive(Debug)]
 struct PlacedStatue(pub StatueColor, pub Location);
 
+#[derive(Default)]
+struct PuzzleState(bool);
+
+#[derive(Default)]
+struct InsideDoor(bool);
+
+struct InsideDoorAngle(f32);
+impl Default for InsideDoorAngle {
+    fn default() -> Self {
+        Self(0.0)
+    }
+}
+
 #[derive(Debug)]
 struct Player {
     equipped: usize,
     inventory: HashSet<String>,
 }
-
-#[derive(Default)]
-struct PuzzleState(bool);
 
 impl Default for Player {
     fn default() -> Self {
@@ -531,6 +580,12 @@ fn make_children_placed_statues(
             .insert(RayCastMesh::<PickingRaycastSet>::default())
             .insert(PlacedStatue(color, location))
             .insert(Pickable(name.to_string()));
+    }
+}
+
+fn make_children_inside_door(commands: &mut Commands, children: &Children) {
+    for c in children.iter() {
+        commands.entity(*c).insert(InsideDoor(false));
     }
 }
 
@@ -720,6 +775,7 @@ fn tag_stuff(
                             true,
                         );
                     }
+                    "InsideDoor" => make_children_inside_door(&mut commands, children),
                     _ => {
                         if name.starts_with("Inv") {
                             commands.entity(e).insert(Inventory(n.to_string()));
@@ -772,7 +828,6 @@ fn show_placed(
 }
 
 fn update_posters(
-    mut _commands: Commands,
     mut entities: Query<(Entity, &Poster, &mut Visible)>,
     target: ResMut<BlacklightTarget>,
     player: Res<Player>,
@@ -813,11 +868,18 @@ fn shine_on_poster(
     }
 }
 
-fn check_for_solution(mut solved: ResMut<PuzzleState>, statue_holders: Res<StatueHolders>) {
+fn check_for_solution(
+    mut solved: ResMut<PuzzleState>,
+    statue_holders: Res<StatueHolders>,
+    mut puzzle_door: Query<(&mut InsideDoor, &mut Transform)>,
+) {
     if !solved.0 {
         if statue_holders.solved() {
             println!("solved!");
             solved.0 = true;
+            let (mut door, mut transform) = puzzle_door.single_mut().expect("door");
+            door.0 = true;
+            open_door(&mut transform, 90.0);
         }
     }
 }
@@ -844,6 +906,7 @@ pub fn run() {
     app.init_resource::<Player>();
     app.init_resource::<StatueHolders>();
     app.init_resource::<PuzzleState>();
+    app.init_resource::<InsideDoorAngle>();
     app.add_plugin(DefaultRaycastingPlugin::<PickingRaycastSet>::default());
     app.add_plugin(DefaultRaycastingPlugin::<BlacklightRaycastSet>::default());
     app.add_startup_system(load_assets.system());
