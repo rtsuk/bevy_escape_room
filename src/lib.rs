@@ -270,7 +270,7 @@ fn keyboard_input_system(
         if let Some(pick_target) = target.0.as_ref() {
             let target_name = pick_target.name.to_string();
             match target_name.as_str() {
-                "BallStatueRed" | "BallStatueGreen" | "BallStatueBlue" => {
+                "BallStatueRed" | "BallStatueGreen" | "BallStatueBlue" | "BlacklightFlashlight" => {
                     let inv_name = format!("Inv{}", target_name);
                     player.inventory.insert(inv_name.clone());
                     player.equipped = Player::item_index(&inv_name);
@@ -382,6 +382,9 @@ struct Player {
     inventory: HashSet<String>,
 }
 
+#[derive(Default)]
+struct PuzzleState(bool);
+
 impl Default for Player {
     fn default() -> Self {
         Self {
@@ -451,6 +454,12 @@ impl StatueHolders {
                 .insert(statue_name_for_color(*existing).to_string());
         }
         self.held_statues.remove(&location);
+    }
+
+    fn solved(&self) -> bool {
+        self.held_statues.get(&Location::Left) == Some(&StatueColor::Blue)
+            && self.held_statues.get(&Location::Middle) == Some(&StatueColor::Red)
+            && self.held_statues.get(&Location::Right) == Some(&StatueColor::Green)
     }
 }
 
@@ -804,6 +813,15 @@ fn shine_on_poster(
     }
 }
 
+fn check_for_solution(mut solved: ResMut<PuzzleState>, statue_holders: Res<StatueHolders>) {
+    if !solved.0 {
+        if statue_holders.solved() {
+            println!("solved!");
+            solved.0 = true;
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
@@ -825,12 +843,14 @@ pub fn run() {
     app.init_resource::<EquippedInstance>();
     app.init_resource::<Player>();
     app.init_resource::<StatueHolders>();
+    app.init_resource::<PuzzleState>();
     app.add_plugin(DefaultRaycastingPlugin::<PickingRaycastSet>::default());
     app.add_plugin(DefaultRaycastingPlugin::<BlacklightRaycastSet>::default());
     app.add_startup_system(load_assets.system());
     app.add_startup_system(crate::setup.system());
     app.add_system(rotator_system.system());
     app.add_system(ui_example.system());
+    app.add_system(check_for_solution.system());
     app.add_system(keyboard_input_system.system());
     app.add_system(tag_stuff.system());
     app.add_system(show_equipped.system());
