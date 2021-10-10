@@ -195,18 +195,23 @@ fn ui_example(egui_context: Res<EguiContext>, player: Res<Player>) {
         });
 }
 
-fn update_raycast_with_cursor(
+fn update_pick_target(
     picking_camera_query: Query<&RayCastSource<PickingRaycastSet>>,
-    entities: Query<(Entity, &Pickable)>,
+    entities: Query<(Entity, &Pickable, &Visible)>,
     mut target: ResMut<Target>,
 ) {
+    *target = Target(None);
     if let Some(picking_camera) = picking_camera_query.iter().last() {
         if let Some((picked_entity, _intersection)) = picking_camera.intersect_top() {
-            if let Ok(pickable) = entities.get_component::<Pickable>(picked_entity) {
-                *target = Target(Some(NamedEntity {
-                    name: pickable.0.to_string(),
-                    entity: picked_entity,
-                }));
+            if let Ok(visible) = entities.get_component::<Visible>(picked_entity) {
+                if visible.is_visible {
+                    if let Ok(pickable) = entities.get_component::<Pickable>(picked_entity) {
+                        *target = Target(Some(NamedEntity {
+                            name: pickable.0.to_string(),
+                            entity: picked_entity,
+                        }));
+                    }
+                }
             }
         }
     }
@@ -217,6 +222,7 @@ fn update_place_target(
     entities: Query<(Entity, &StatueHolder)>,
     mut target: ResMut<PlaceTarget>,
 ) {
+    *target = PlaceTarget(None);
     if let Some(picking_camera) = picking_camera_query.iter().last() {
         if let Some((picked_entity, _intersection)) = picking_camera.intersect_top() {
             if let Ok(place_target) = entities.get_component::<StatueHolder>(picked_entity) {
@@ -227,6 +233,29 @@ fn update_place_target(
             }
         }
     }
+}
+
+fn parse_placed_statue(name: &str) -> Option<(Location, StatueColor)> {
+    if !name.contains("Placed") {
+        return None;
+    }
+
+    let color = if name.contains("Blue") {
+        StatueColor::Blue
+    } else if name.contains("Red") {
+        StatueColor::Red
+    } else {
+        StatueColor::Green
+    };
+
+    let location = if name.contains("Mid") {
+        Location::Middle
+    } else if name.contains("Left") {
+        Location::Left
+    } else {
+        Location::Right
+    };
+    Some((location, color))
 }
 
 fn keyboard_input_system(
@@ -240,11 +269,21 @@ fn keyboard_input_system(
     if keyboard_input.just_pressed(KeyCode::F1) {
         if let Some(pick_target) = target.0.as_ref() {
             let target_name = pick_target.name.to_string();
-            let inv_name = format!("Inv{}", target_name);
-            player.inventory.insert(inv_name.clone());
-            player.equipped = Player::item_index(&inv_name);
-            commands.entity(pick_target.entity).despawn();
-            target.0 = None;
+            match target_name.as_str() {
+                "BallStatueRed" | "BallStatueGreen" | "BallStatueBlue" => {
+                    let inv_name = format!("Inv{}", target_name);
+                    player.inventory.insert(inv_name.clone());
+                    player.equipped = Player::item_index(&inv_name);
+                    commands.entity(pick_target.entity).despawn();
+                    target.0 = None;
+                }
+                _ => {
+                    let parsed = parse_placed_statue(&target_name);
+                    if let Some((location, _color)) = parsed {
+                        statue_holders.remove(&mut player, location);
+                    }
+                }
+            }
         } else if let Some(place) = place_target.0.as_ref() {
             let equipped_name = player.equipped_name();
             match equipped_name {
@@ -404,6 +443,15 @@ impl StatueHolders {
         }
         self.held_statues.insert(location, statue_color);
     }
+
+    fn remove(&mut self, player: &mut Player, location: Location) {
+        if let Some(existing) = self.held_statues.get(&location) {
+            player
+                .inventory
+                .insert(statue_name_for_color(*existing).to_string());
+        }
+        self.held_statues.remove(&location);
+    }
 }
 
 fn make_children_pickable(
@@ -463,6 +511,7 @@ fn make_children_placed_statues(
     children: &Children,
     color: StatueColor,
     location: Location,
+    name: &str,
 ) {
     commands
         .entity(*parent)
@@ -471,7 +520,8 @@ fn make_children_placed_statues(
         commands
             .entity(*c)
             .insert(RayCastMesh::<PickingRaycastSet>::default())
-            .insert(PlacedStatue(color, location));
+            .insert(PlacedStatue(color, location))
+            .insert(Pickable(name.to_string()));
     }
 }
 
@@ -524,6 +574,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Red,
                             Location::Right,
+                            name,
                         );
                     }
                     "BallStatueGreenPlacedRight" => {
@@ -533,6 +584,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Green,
                             Location::Right,
+                            name,
                         );
                     }
                     "BallStatueBluePlacedRight" => {
@@ -542,6 +594,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Blue,
                             Location::Right,
+                            name,
                         );
                     }
                     "BallStatueRedPlacedMid" => {
@@ -551,6 +604,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Red,
                             Location::Middle,
+                            name,
                         );
                     }
                     "BallStatueGreenPlacedMid" => {
@@ -560,6 +614,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Green,
                             Location::Middle,
+                            name,
                         );
                     }
                     "BallStatueBluePlacedMid" => {
@@ -569,6 +624,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Blue,
                             Location::Middle,
+                            name,
                         );
                     }
                     "BallStatueRedPlacedLeft" => {
@@ -578,6 +634,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Red,
                             Location::Left,
+                            name,
                         );
                     }
                     "BallStatueGreenPlacedLeft" => {
@@ -587,6 +644,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Green,
                             Location::Left,
+                            name,
                         );
                     }
                     "BallStatueBluePlacedLeft" => {
@@ -596,6 +654,7 @@ fn tag_stuff(
                             children,
                             StatueColor::Blue,
                             Location::Left,
+                            name,
                         );
                     }
                     "RedPoster" => {
@@ -779,9 +838,7 @@ pub fn run() {
     app.add_system(update_posters.system());
     app.add_system_to_stage(
         CoreStage::PostUpdate,
-        update_raycast_with_cursor
-            .system()
-            .before(RaycastSystem::BuildRays),
+        update_pick_target.system().before(RaycastSystem::BuildRays),
     );
     app.add_system_to_stage(
         CoreStage::PostUpdate,
